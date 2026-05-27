@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: call-of-papers
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health

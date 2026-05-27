@@ -108,6 +108,26 @@ Abrir en el navegador: **http://localhost:8000**
 
 La base SQLite se crea automáticamente en `backend/data/call_of_papers.sqlite3`.
 
+## Despliegue en Render Free
+
+El proyecto incluye `Dockerfile` y `render.yaml` para desplegar la app completa como un **Web Service** en Render. El contenedor instala las dependencias Python y Chromium para Playwright, y sirve el frontend desde FastAPI.
+
+Pasos:
+
+1. Subir este repositorio a GitHub, GitLab o Bitbucket.
+2. Crear una cuenta en Render.
+3. En Render, elegir **New +** → **Blueprint** y conectar el repositorio.
+4. Seleccionar el `render.yaml` detectado en la raíz.
+5. Confirmar el servicio `call-of-papers` con plan **Free**.
+6. Esperar el primer deploy y abrir la URL `*.onrender.com`.
+
+Limitaciones importantes del plan gratuito:
+
+- El servicio puede dormirse tras unos minutos sin tráfico y tardar en despertar.
+- El filesystem es efímero: la base SQLite local puede perderse tras reinicios o redeploys.
+- Para persistencia real conviene migrar la base a Postgres externo.
+- Las notificaciones por SMTP pueden no funcionar en Render Free si dependen de puertos SMTP bloqueados.
+
 ### Configuración de correo
 
 Las búsquedas se pueden crear sin configurar correo, pero los avisos solo se enviarán cuando el servidor tenga datos SMTP. Crear un archivo `.env` en la raíz del proyecto o configurar estas variables antes de arrancar la aplicación:
