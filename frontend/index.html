@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Call for Papers Explorer</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- HEADER -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="header-title">
+        <span class="header-icon">📄</span>
+        <div>
+          <h1>Call for Papers Explorer</h1>
+          <p id="header-sub" class="header-sub">Fuentes dinámicas</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="btn-refresh" class="btn-primary" onclick="loadData(true)">
+          <span class="btn-icon">↻</span> Actualizar
+        </button>
+        <button id="btn-toggle-sources" class="btn-secondary" onclick="toggleSourcesPanel()">
+          Fuentes
+        </button>
+        <button id="btn-toggle-searches" class="btn-secondary" onclick="toggleSearchesPanel()">
+          Búsquedas
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- CONTROLS -->
+  <div class="controls-bar">
+    <div class="controls-inner">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input
+          type="text"
+          id="input-search"
+          placeholder="Buscar por título, revista, descripción…"
+          oninput="applyFilters()"
+        />
+      </div>
+      <select id="select-source" onchange="applyFilters()">
+        <option value="">Todas las fuentes</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- STATUS BAR -->
+  <div id="status-bar" class="status-bar hidden"></div>
+
+  <!-- MAIN -->
+  <main class="main-content">
+
+    <!-- Loading -->
+    <div id="loading" class="loading-wrap hidden">
+      <div class="spinner"></div>
+      <p>Cargando calls for papers…</p>
+    </div>
+
+    <!-- Error -->
+    <div id="error-box" class="error-box hidden">
+      <span class="error-icon">⚠️</span>
+      <span id="error-msg"></span>
+    </div>
+
+    <!-- Stats -->
+    <div id="stats-row" class="stats-row hidden">
+      <span id="stat-count"></span>
+      <span id="stat-cache"></span>
+    </div>
+
+    <!-- Source statuses -->
+    <div id="source-statuses" class="source-statuses hidden"></div>
+
+    <!-- Sources admin -->
+    <section id="sources-panel" class="sources-panel hidden">
+      <div class="sources-panel-head">
+        <h2>Fuentes</h2>
+        <button class="btn-compact" type="button" onclick="resetSourceForm()">Nueva fuente</button>
+      </div>
+
+      <div id="sources-list" class="sources-list"></div>
+
+      <form id="source-form" class="source-form" onsubmit="saveSource(event)">
+        <input type="hidden" id="source-id" />
+
+        <div class="form-grid">
+          <label>
+            Alias
+            <input type="text" id="source-name" required />
+          </label>
+
+          <label>
+            URL
+            <input type="url" id="source-url" required />
+          </label>
+
+          <label class="check-row">
+            <input type="checkbox" id="source-enabled" checked />
+            Activa
+          </label>
+        </div>
+
+        <p class="form-hint">La aplicación detectará automáticamente el tipo de fuente y sus reglas de extracción.</p>
+
+        <details class="advanced-settings">
+          <summary>Configuración avanzada</summary>
+          <div class="advanced-grid">
+            <label>
+              Tipo detectado
+              <select id="source-type" onchange="handleSourceTypeChange(true)"></select>
+            </label>
+          </div>
+
+          <div id="guided-settings" class="guided-settings"></div>
+
+          <label class="field-wide">
+            JSON
+            <textarea id="source-settings" rows="7" oninput="syncGuidedSettingsFromJson()">{}</textarea>
+          </label>
+        </details>
+
+        <div id="source-form-error" class="form-error hidden"></div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn-form-primary">Guardar</button>
+          <button type="button" class="btn-form-secondary" onclick="resetSourceForm()">Cancelar</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Searches admin -->
+    <section id="searches-panel" class="sources-panel hidden">
+      <div class="sources-panel-head">
+        <h2>Búsquedas</h2>
+        <button class="btn-compact" type="button" onclick="resetSearchForm()">Nueva búsqueda</button>
+      </div>
+
+      <div id="searches-list" class="sources-list"></div>
+
+      <form id="search-form" class="source-form" onsubmit="saveSearch(event)">
+        <input type="hidden" id="saved-search-id" />
+
+        <div class="form-grid">
+          <label>
+            Nombre
+            <input type="text" id="saved-search-name" required />
+          </label>
+
+          <label>
+            Correo electrónico
+            <input type="email" id="saved-search-email" required />
+          </label>
+
+          <label class="check-row">
+            <input type="checkbox" id="saved-search-enabled" checked />
+            Activa
+          </label>
+        </div>
+
+        <label class="field-wide">
+          Palabras clave
+          <textarea id="saved-search-keywords" rows="4" required placeholder="machine learning, education&#10;open science"></textarea>
+        </label>
+
+        <div id="search-form-error" class="form-error hidden"></div>
+
+        <div class="form-actions">
+          <button type="submit" class="btn-form-primary">Guardar</button>
+          <button type="button" class="btn-form-secondary" onclick="resetSearchForm()">Cancelar</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Results -->
+    <div id="results-grid" class="results-grid"></div>
+
+    <!-- Empty -->
+    <div id="empty-state" class="empty-state hidden">
+      <p>No se encontraron resultados para los filtros actuales.</p>
+    </div>
+
+  </main>
+
+  <footer class="site-footer">
+    <p>Fuentes configurables · Los datos se cachean 1 hora</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
