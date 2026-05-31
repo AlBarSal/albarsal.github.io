@@ -24,11 +24,12 @@ La aplicación se inicializa con dos fuentes por defecto:
 - Carga dinámica de scrapers activos desde base de datos
 - Scraper HTML genérico configurable mediante selectores CSS
 - Scraping asíncrono y robusto con múltiples estrategias de extracción
-- Caché en memoria (TTL 1 hora) para no sobrecargar las fuentes
+- Consulta bajo demanda: abrir la app no scrapea fuentes; solo se consulta al pulsar **Consultar** o usar `refresh=true`
+- Caché en memoria (TTL 1 hora) para señalizar frescura sin refrescar automáticamente
 - Si una fuente falla, la otra sigue mostrando sus resultados con un indicador de error claro
 - Búsqueda en tiempo real por título, revista y descripción
 - Filtro por fuente (Taylor & Francis / APA)
-- Botón de actualización forzada
+- Botón de consulta bajo demanda
 - Indicadores de estado por fuente
 - Diseño responsive, limpio y usable
 - Sin dependencias de frontend (HTML/CSS/JS vanilla)
@@ -104,7 +105,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
 Abrir en el navegador: **http://localhost:8000**
 
-> La primera carga puede tardar 60–90 segundos mientras el scraper obtiene datos de ~583 special issues de Taylor & Francis (60 páginas individuales en paralelo + API paginada).
+> La primera carga no consulta las fuentes automáticamente. La primera consulta bajo demanda puede tardar 60–90 segundos mientras el scraper obtiene datos de ~583 special issues de Taylor & Francis (60 páginas individuales en paralelo + API paginada).
 
 La base SQLite se crea automáticamente en `backend/data/call_of_papers.sqlite3`.
 
@@ -150,8 +151,8 @@ SMTP_SSL=false
 | Método | Ruta | Descripción |
 |--------|------|-------------|
 | `GET` | `/` | Interfaz web (frontend) |
-| `GET` | `/api/cfp` | Listado de CFPs (con caché 1h) |
-| `GET` | `/api/cfp?refresh=true` | Fuerza actualización desde las fuentes |
+| `GET` | `/api/cfp` | Devuelve los CFPs actualmente cacheados; no consulta fuentes si la caché está vacía o caducada |
+| `GET` | `/api/cfp?refresh=true` | Consulta las fuentes bajo demanda y actualiza la caché |
 | `GET` | `/api/cfp?source=APA` | Filtrar por fuente |
 | `GET` | `/api/cfp?q=texto` | Búsqueda por texto libre |
 | `GET` | `/api/health` | Estado del servidor y caché |
@@ -211,7 +212,7 @@ SMTP_SSL=false
 - Las convocatorias de APA están en su mayor parte como texto en HTML estático; la estructura puede variar si APA rediseña su página.
 
 ### General
-- **Caché**: Los datos se cachean 1 hora en memoria. Reiniciar el servidor limpia el caché.
+- **Caché**: Los datos se cachean en memoria y se consideran frescos durante 1 hora. `GET /api/cfp` no refresca automáticamente; solo `GET /api/cfp?refresh=true` consulta fuentes. Reiniciar el servidor limpia el caché.
 - **Fuentes**: Las fuentes se persisten en SQLite. Crear, editar, activar, desactivar o borrar una fuente invalida el caché.
 - **Búsquedas**: Las búsquedas se persisten en SQLite. En cada actualización real de CFPs se separan las palabras clave por comas, punto y coma, saltos de línea o espacios si no hay separadores explícitos.
 - **Correo**: Si una búsqueda encuentra coincidencias y SMTP no está configurado, la comprobación queda registrada con error pero la actualización de CFPs no falla.

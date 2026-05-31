@@ -231,6 +231,88 @@ body {
 .source-pill.ok  .dot { background: var(--success); }
 .source-pill.err .dot { background: var(--error); }
 
+/* ── Usage guide ────────────────────────────────────────────────────────── */
+.usage-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr);
+  margin-bottom: 1.25rem;
+  padding: 1rem;
+}
+.usage-copy {
+  align-self: center;
+}
+.usage-kicker {
+  color: var(--accent);
+  font-size: .76rem;
+  font-weight: 750;
+  letter-spacing: .02em;
+  margin-bottom: .35rem;
+  text-transform: uppercase;
+}
+.usage-copy h2 {
+  color: var(--text);
+  font-size: 1.18rem;
+  line-height: 1.25;
+  margin-bottom: .45rem;
+}
+.usage-copy p:last-child {
+  color: var(--text-secondary);
+  font-size: .9rem;
+  line-height: 1.55;
+  max-width: 62ch;
+}
+.usage-steps {
+  display: grid;
+  gap: .55rem;
+}
+.usage-step {
+  align-items: flex-start;
+  background: #f9fafb;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  gap: .65rem;
+  padding: .7rem .75rem;
+}
+.usage-step-number {
+  align-items: center;
+  background: var(--accent-light);
+  border: 1px solid #bfdbfe;
+  border-radius: 50%;
+  color: var(--accent-dark);
+  display: inline-flex;
+  flex: 0 0 1.6rem;
+  font-size: .78rem;
+  font-weight: 800;
+  height: 1.6rem;
+  justify-content: center;
+}
+.usage-step strong {
+  display: block;
+  font-size: .86rem;
+  line-height: 1.25;
+}
+.usage-step span:last-child {
+  color: var(--text-secondary);
+  display: block;
+  font-size: .8rem;
+  line-height: 1.4;
+  margin-top: .15rem;
+}
+.usage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .55rem;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+
 /* ── Sources admin ───────────────────────────────────────────────────────── */
 .sources-panel {
   background: var(--surface);
@@ -577,6 +659,9 @@ body {
   .btn-primary, .btn-secondary { justify-content: center; flex: 1; }
   .form-grid { grid-template-columns: 1fr; }
   .settings-grid { grid-template-columns: 1fr; }
+  .usage-panel { grid-template-columns: 1fr; }
+  .usage-actions { justify-content: stretch; }
+  .usage-actions button { flex: 1; }
   .source-row { grid-template-columns: 1fr; }
   .source-row-actions { justify-content: flex-start; }
   .form-actions { justify-content: stretch; }

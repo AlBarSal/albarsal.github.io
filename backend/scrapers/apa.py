@@ -13,6 +13,7 @@ import re
 from typing import List, Tuple
 from urllib.parse import urljoin
 
+import httpx
 from bs4 import BeautifulSoup, Tag
 
 from models import CallForPaper, ScrapingStatus
@@ -24,6 +25,11 @@ BASE_URL = "https://www.apa.org"
 URL = f"{BASE_URL}/pubs/journals/resources/calls-for-papers"
 
 _LOAD_TIMEOUT_MS = 30_000
+_READER_PREFIX = "https://r.jina.ai/http://"
+_MARKDOWN_LINK_RE = re.compile(r"^\*\s+\[([^\]]+)\]\((https?://[^)]+)\)\s*(.*)$")
+_MARKDOWN_DATE_RE = re.compile(
+    r"^\*?\*?([A-Z][A-Za-z]+\s+\d{1,2},\s+\d{4})\*?\*?\s*:?\s*(.*)$"
+)
 
 
 class APAScraper(BaseScraper):
@@ -52,19 +58,55 @@ class APAScraper(BaseScraper):
         # httpx fallback
         soup = await self.fetch(self.url)
         if soup is None:
+            cfps, reader_error = await self._scrape_reader()
+            if cfps:
+                logger.info("[%s] Reader fallback found %d CFPs", self.source_name, len(cfps))
+                return cfps, ScrapingStatus(
+                    source_id=self.source_id,
+                    source=self.source_name,
+                    success=True,
+                    count=len(cfps),
+                )
             return [], ScrapingStatus(
                 source_id=self.source_id, source=self.source_name, success=False, count=0,
-                error="No se pudo acceder a la página (bloqueado por WAF)"
+                error=reader_error or "No se pudo acceder a la página (bloqueado por WAF)"
             )
 
         text = clean(soup.get_text())
         if "incapsula" in text.lower() or len(text) < 200:
+            cfps, reader_error = await self._scrape_reader()
+            if cfps:
+                logger.info("[%s] Reader fallback found %d CFPs", self.source_name, len(cfps))
+                return cfps, ScrapingStatus(
+                    source_id=self.source_id,
+                    source=self.source_name,
+                    success=True,
+                    count=len(cfps),
+                )
             return [], ScrapingStatus(
                 source_id=self.source_id, source=self.source_name, success=False, count=0,
-                error="Acceso bloqueado por el WAF de APA. Playwright es requerido."
+                error=reader_error or "Acceso bloqueado por el WAF de APA. Playwright es requerido."
             )
 
         cfps = self._parse_soup(soup)
+        if not cfps:
+            cfps, reader_error = await self._scrape_reader()
+            if cfps:
+                logger.info("[%s] Reader fallback found %d CFPs", self.source_name, len(cfps))
+                return cfps, ScrapingStatus(
+                    source_id=self.source_id,
+                    source=self.source_name,
+                    success=True,
+                    count=len(cfps),
+                )
+            return [], ScrapingStatus(
+                source_id=self.source_id,
+                source=self.source_name,
+                success=False,
+                count=0,
+                error=reader_error or "No se encontraron convocatorias en APA",
+            )
+
         logger.info("[%s] httpx found %d CFPs", self.source_name, len(cfps))
         return cfps, ScrapingStatus(
             source_id=self.source_id, source=self.source_name, success=True, count=len(cfps)
@@ -135,6 +177,131 @@ class APAScraper(BaseScraper):
         # Deduplicate
         seen: set[str] = set()
         return [c for c in cfps if not (c.id in seen or seen.add(c.id))]  # type: ignore
+
+    async def _scrape_reader(self) -> tuple[List[CallForPaper], str | None]:
+        reader_url = f"{_READER_PREFIX}{self.url}"
+        try:
+            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                response = await client.get(reader_url)
+                response.raise_for_status()
+        except Exception as exc:
+            return [], f"APA bloqueada y fallback reader no disponible: {exc}"
+
+        cfps = self._parse_reader_markdown(response.text)
+        if not cfps:
+            return [], "APA bloqueada y fallback reader sin convocatorias parseables"
+        return cfps, None
+
+    def _parse_reader_markdown(self, markdown: str) -> List[CallForPaper]:
+        lines = [line.strip() for line in markdown.splitlines() if line.strip()]
+        current_journal = "No disponible"
+        current: dict | None = None
+        descriptions: list[str] = []
+        date_candidates: list[tuple[int, str, str]] = []
+        cfps: List[CallForPaper] = []
+
+        def flush() -> None:
+            nonlocal current, descriptions, date_candidates
+            if not current:
+                return
+            deadline = current.get("deadline", "No disponible")
+            if date_candidates:
+                _, deadline, label = max(date_candidates, key=lambda candidate: candidate[0])
+                if label:
+                    descriptions.insert(0, label)
+            elif current.get("no_deadline"):
+                deadline = "Sin fecha límite"
+
+            description = clean(" ".join(descriptions)) or "No disponible"
+            title = current["title"]
+            cfps.append(
+                CallForPaper(
+                    id=make_id(self.source_name, title),
+                    title=title,
+                    source=self.source_name,
+                    journal=current["journal"],
+                    deadline=deadline,
+                    description=self._truncate(description),
+                    url=current["url"],
+                )
+            )
+            current = None
+            descriptions = []
+            date_candidates = []
+
+        for index, line in enumerate(lines):
+            next_line = lines[index + 1] if index + 1 < len(lines) else ""
+            if line.startswith(("Title:", "URL Source:", "Markdown Content:")):
+                continue
+            if line.startswith(("*   [Home]", "*   [Publications", "*   [Journals")):
+                continue
+            if self._is_reader_heading(line, next_line):
+                flush()
+                current_journal = self._clean_markdown(line)
+                continue
+
+            link_match = _MARKDOWN_LINK_RE.match(line)
+            if link_match:
+                flush()
+                title = self._clean_markdown(link_match.group(1))
+                url = link_match.group(2)
+                suffix = self._clean_markdown(link_match.group(3))
+                current = {
+                    "title": title,
+                    "url": url,
+                    "journal": current_journal,
+                    "deadline": "No disponible",
+                    "no_deadline": "no submission deadline" in suffix.lower(),
+                }
+                if suffix and not current["no_deadline"]:
+                    descriptions.append(suffix)
+                continue
+
+            date_match = _MARKDOWN_DATE_RE.match(self._clean_markdown(line))
+            if date_match and current:
+                label = date_match.group(2)
+                date_candidates.append(
+                    (self._deadline_score(label), date_match.group(1), label)
+                )
+                continue
+
+            if current and not line.startswith("*"):
+                text = self._clean_markdown(line)
+                if text:
+                    descriptions.append(text)
+
+        flush()
+        seen: set[str] = set()
+        return [cfp for cfp in cfps if not (cfp.url in seen or seen.add(cfp.url))]  # type: ignore
+
+    def _is_reader_heading(self, line: str, next_line: str) -> bool:
+        if any(token in line for token in "[]()") or line.startswith(("*", "#")):
+            return False
+        text = self._clean_markdown(line)
+        if not text or len(text) > 120:
+            return False
+        return next_line.startswith("*   [") or next_line.startswith("* [")
+
+    def _clean_markdown(self, text: str) -> str:
+        text = re.sub(r"!\[[^\]]*]\([^)]+\)", "", text)
+        text = re.sub(r"\[[^\]]+]\([^)]+\)", "", text)
+        text = re.sub(r"[*_`]+", "", text)
+        return clean(text)
+
+    def _deadline_score(self, label: str) -> int:
+        label_lower = label.lower()
+        score = 0
+        if "manuscript" in label_lower or "full" in label_lower:
+            score += 4
+        if "submission" in label_lower or "submit" in label_lower:
+            score += 3
+        if "deadline" in label_lower or "due" in label_lower:
+            score += 2
+        if any(token in label_lower for token in ("abstract", "proposal", "letter", "expression")):
+            score -= 1
+        if any(token in label_lower for token in ("publication", "notification", "invitation", "completion")):
+            score -= 3
+        return score
 
     def _strategy_drupal_views(self, soup: BeautifulSoup) -> List[CallForPaper]:
         rows = soup.find_all(

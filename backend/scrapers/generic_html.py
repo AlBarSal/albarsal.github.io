@@ -1,12 +1,14 @@
 import logging
 import re
+import asyncio
 from copy import copy
 from typing import List, Tuple
 
+import httpx
 from bs4 import BeautifulSoup, Tag
 
 from models import CallForPaper, ScrapingStatus
-from .base import BaseScraper, clean, extract_date, make_id
+from .base import BaseScraper, HEADERS, clean, extract_date, make_id
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,7 @@ class GenericHtmlScraper(BaseScraper):
 
         try:
             cfps = self._parse_soup(soup)
+            cfps.extend(await self._scrape_paginated_pages())
         except Exception as exc:
             logger.error("[%s] Generic HTML parse error: %s", self.source_name, exc)
             return [], ScrapingStatus(
@@ -65,6 +68,48 @@ class GenericHtmlScraper(BaseScraper):
             success=True,
             count=len(unique),
         )
+
+    async def _scrape_paginated_pages(self) -> List[CallForPaper]:
+        template = self._setting("pagination_url_template")
+        if not template:
+            return []
+
+        max_pages = int(self.settings.get("max_pages", 1) or 1)
+        start_page = int(self.settings.get("pagination_start", 2) or 2)
+        if max_pages < start_page:
+            return []
+
+        page_numbers = list(range(start_page, max_pages + 1))
+        concurrency = max(1, int(self.settings.get("concurrency", 4) or 4))
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async with httpx.AsyncClient(
+            headers=HEADERS, follow_redirects=True, timeout=30.0
+        ) as client:
+
+            async def fetch_page(page: int) -> List[CallForPaper]:
+                url = template.format(page=page)
+                async with semaphore:
+                    try:
+                        response = await client.get(url)
+                        response.raise_for_status()
+                        soup = BeautifulSoup(response.text, "lxml")
+                        return self._parse_soup(soup)
+                    except Exception as exc:
+                        logger.warning(
+                            "[%s] Pagination fetch failed for %s: %s",
+                            self.source_name,
+                            url,
+                            exc,
+                        )
+                        return []
+
+            results = await asyncio.gather(*(fetch_page(page) for page in page_numbers))
+
+        cfps: List[CallForPaper] = []
+        for page_cfps in results:
+            cfps.extend(page_cfps)
+        return cfps
 
     def _parse_soup(self, soup: BeautifulSoup) -> List[CallForPaper]:
         item_selector = self._setting("item_selector")
@@ -126,6 +171,9 @@ class GenericHtmlScraper(BaseScraper):
         row = self._context_for_heading(row)
         title = self._text_from(row, self._setting("title_selector"))
         link = self._link_from(row, self._setting("url_selector"))
+
+        if not link and row.name == "a" and row.has_attr("href"):
+            link = str(row["href"])
 
         if not title:
             link_tag = row.find("a", href=True)

@@ -1,7 +1,7 @@
 from typing import Any
 
 from models import Source
-from scrapers import APAScraper, GenericHtmlScraper, ScienceDirectScraper, TaylorFrancisScraper
+from scrapers import APAScraper, GenericHtmlScraper, SageScraper, ScienceDirectScraper, TaylorFrancisScraper
 from scrapers.base import BaseScraper
 
 
@@ -9,6 +9,7 @@ SCRAPER_REGISTRY: dict[str, type[BaseScraper]] = {
     "taylor_francis": TaylorFrancisScraper,
     "apa": APAScraper,
     "sciencedirect": ScienceDirectScraper,
+    "sage": SageScraper,
     "generic_html": GenericHtmlScraper,
 }
 
@@ -32,11 +33,16 @@ SCRAPER_TYPES: list[dict[str, Any]] = [
     },
     {
         "type": "sciencedirect",
-        "label": "ScienceDirect (vía Scopus API)",
+        "label": "ScienceDirect",
         "settings": {
-            "count": "Número máximo de CFPs a recuperar (por defecto 200)",
-            "months": "Meses hacia atrás a buscar (por defecto 12)",
+            "count": "Número máximo de CFPs a recuperar; vacío recupera todo el browse",
+            "months": "Meses hacia atrás para fallback Scopus (por defecto 12)",
         },
+    },
+    {
+        "type": "sage",
+        "label": "Sage Journals",
+        "settings": {},
     },
     {
         "type": "generic_html",

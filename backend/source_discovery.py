@@ -80,6 +80,9 @@ async def discover_source(name: str, url: str) -> tuple[str, dict]:
     if "sciencedirect.com" in host and "calls-for-papers" in path:
         return "sciencedirect", {}
 
+    if "journals.sagepub.com" in host and "call" in path:
+        return "sage", {}
+
     if "nature.com" in host and "calls-for-papers" in path:
         return "generic_html", {
             "item_selector": "li.app-article-list-row__item",
@@ -87,7 +90,25 @@ async def discover_source(name: str, url: str) -> tuple[str, dict]:
             "url_selector": "[data-test='link-title'], h2 a, h3 a",
             "deadline_selector": "[data-test='end-date']",
             "description_selector": "[data-test='description'], .c-card__summary",
-            "default_journal": name,
+            "default_journal": "Scientific Reports",
+            "pagination_url_template": "https://www.nature.com/srep/calls-for-papers?page={page}",
+            "pagination_start": 2,
+            "max_pages": 63,
+            "concurrency": 8,
+        }
+
+    if "emeraldgrouppublishing.com" in host and "calls-for-papers" in path:
+        return "generic_html", {
+            "item_selector": "a.node--type-call-for-papers",
+            "title_selector": ".cfp-card__content-title",
+            "journal_selector": ".cfp-card__content-journal",
+            "deadline_selector": ".cfp-card__active-dates-item time",
+            "description_selector": ".cfp-card__content-body",
+            "default_journal": "Emerald Publishing",
+            "pagination_url_template": "https://www.emeraldgrouppublishing.com/publish-with-us/calls-for-papers?page={page}",
+            "pagination_start": 1,
+            "max_pages": 80,
+            "concurrency": 8,
         }
 
     settings = await _discover_generic_html(name, url)

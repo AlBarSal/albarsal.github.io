@@ -20,7 +20,7 @@
       </div>
       <div class="header-actions">
         <button id="btn-refresh" class="btn-primary" onclick="loadData(true)">
-          <span class="btn-icon">↻</span> Actualizar
+          <span class="btn-icon">↻</span> Consultar
         </button>
         <button id="btn-toggle-sources" class="btn-secondary" onclick="toggleSourcesPanel()">
           Fuentes
@@ -76,6 +76,48 @@
 
     <!-- Source statuses -->
     <div id="source-statuses" class="source-statuses hidden"></div>
+
+    <!-- Usage guide -->
+    <section id="usage-panel" class="usage-panel hidden" aria-labelledby="usage-title">
+      <div class="usage-copy">
+        <p class="usage-kicker">Sin consulta cargada</p>
+        <h2 id="usage-title">Empieza consultando las fuentes</h2>
+        <p>
+          La web no descarga convocatorias hasta que tú lo pides. Pulsa Consultar para cargar
+          resultados; después puedes filtrar, revisar fuentes o guardar búsquedas con aviso por correo.
+        </p>
+      </div>
+
+      <div class="usage-steps" aria-label="Flujo recomendado">
+        <div class="usage-step">
+          <span class="usage-step-number">1</span>
+          <div>
+            <strong>Consultar</strong>
+            <span>Carga convocatorias desde las fuentes activas.</span>
+          </div>
+        </div>
+        <div class="usage-step">
+          <span class="usage-step-number">2</span>
+          <div>
+            <strong>Filtrar</strong>
+            <span>Busca por título, revista o descripción.</span>
+          </div>
+        </div>
+        <div class="usage-step">
+          <span class="usage-step-number">3</span>
+          <div>
+            <strong>Guardar búsquedas</strong>
+            <span>Define palabras clave y correo para recibir coincidencias.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="usage-actions">
+        <button type="button" class="btn-form-primary" onclick="loadData(true)">Consultar ahora</button>
+        <button type="button" class="btn-form-secondary" onclick="openSourcesPanel()">Fuentes</button>
+        <button type="button" class="btn-form-secondary" onclick="openSearchesPanel()">Búsquedas</button>
+      </div>
+    </section>
 
     <!-- Sources admin -->
     <section id="sources-panel" class="sources-panel hidden">

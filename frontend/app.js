@@ -25,6 +25,11 @@ const SOURCE_SETTING_SCHEMAS = {
     { key: 'concurrency', label: 'Paralelismo', type: 'number', placeholder: '8' },
   ],
   apa: [],
+  sage: [],
+  sciencedirect: [
+    { key: 'count', label: 'Máximo resultados', type: 'number', placeholder: 'Vacío = todos' },
+    { key: 'months', label: 'Meses fallback', type: 'number', placeholder: '12' },
+  ],
 };
 
 // ── DOM refs ──────────────────────────────────────────────────────────────
@@ -39,6 +44,7 @@ const statCache     = $('stat-cache');
 const sourcePills   = $('source-statuses');
 const emptyState    = $('empty-state');
 const statusBar     = $('status-bar');
+const usagePanel    = $('usage-panel');
 const btnRefresh    = $('btn-refresh');
 const btnIcon       = btnRefresh.querySelector('.btn-icon');
 const headerSub     = $('header-sub');
@@ -59,7 +65,7 @@ async function init() {
   await Promise.all([loadSources(), loadSearches()]);
   resetSourceForm();
   resetSearchForm();
-  await loadData(false);
+  setDemandReadyState();
 }
 
 // ── Fetch ─────────────────────────────────────────────────────────────────
@@ -79,8 +85,9 @@ async function loadData(forceRefresh = false) {
   if (_isLoading) return;
   _isLoading = true;
   setLoading(true);
+  hideUsagePanel();
   hideError();
-  setStatusBar('info', forceRefresh ? 'Actualizando datos desde las fuentes…' : 'Cargando datos…');
+  setStatusBar('info', forceRefresh ? 'Consultando fuentes…' : 'Cargando datos en caché…');
 
   try {
     const url = forceRefresh ? '/api/cfp?refresh=true' : '/api/cfp';
@@ -134,6 +141,8 @@ async function loadSearches() {
 function applyFilters() {
   const q = $('input-search').value.trim().toLowerCase();
   const source = sourceSelect.value.toLowerCase();
+  if (_allCfps.length > 0) hideUsagePanel();
+  else showUsagePanel();
 
   const filtered = _allCfps.filter(cfp => {
     const matchSrc = !source || cfp.source.toLowerCase() === source;
@@ -212,6 +221,12 @@ function toggleSourcesPanel() {
   if (!sourcesPanel.classList.contains('hidden')) {
     loadSources();
   }
+}
+
+function openSourcesPanel() {
+  sourcesPanel.classList.remove('hidden');
+  loadSources();
+  sourcesPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderSources() {
@@ -441,7 +456,7 @@ async function saveSource(event) {
     });
     resetSourceForm();
     await loadSources();
-    await loadData(true);
+    setDemandReadyState('Fuente guardada. Consulta las fuentes cuando quieras actualizar los resultados.');
   } catch (err) {
     showSourceFormError(err.message);
     setStatusBar('error', `Error al guardar fuente: ${err.message}`);
@@ -453,7 +468,9 @@ async function toggleSource(sourceId, enabled) {
     setStatusBar('info', enabled ? 'Activando fuente…' : 'Desactivando fuente…');
     await fetchJson(`/api/sources/${sourceId}/${enabled ? 'enable' : 'disable'}`, { method: 'PATCH' });
     await loadSources();
-    await loadData(true);
+    setDemandReadyState(enabled
+      ? 'Fuente activada. Consulta las fuentes para actualizar los resultados.'
+      : 'Fuente desactivada. Consulta las fuentes para actualizar los resultados.');
   } catch (err) {
     setStatusBar('error', `Error al cambiar fuente: ${err.message}`);
   }
@@ -480,7 +497,7 @@ async function deleteSource(sourceId) {
     setStatusBar('info', 'Borrando fuente…');
     await fetchJson(`/api/sources/${sourceId}`, { method: 'DELETE' });
     await loadSources();
-    await loadData(true);
+    setDemandReadyState('Fuente borrada. Consulta las fuentes para actualizar los resultados.');
   } catch (err) {
     setStatusBar('error', `Error al borrar fuente: ${err.message}`);
   }
@@ -505,6 +522,12 @@ function toggleSearchesPanel() {
   if (!searchesPanel.classList.contains('hidden')) {
     loadSearches();
   }
+}
+
+function openSearchesPanel() {
+  searchesPanel.classList.remove('hidden');
+  loadSearches();
+  searchesPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderSearches() {
@@ -678,6 +701,24 @@ function setStatusBar(type, msg) {
 
 function hideStatusBar() {
   statusBar.classList.add('hidden');
+}
+
+function setDemandReadyState(message = 'Consulta las fuentes para cargar resultados.') {
+  _allCfps = [];
+  renderGrid([]);
+  statsRow.classList.add('hidden');
+  sourcePills.classList.add('hidden');
+  emptyState.classList.add('hidden');
+  showUsagePanel();
+  setStatusBar('info', message);
+}
+
+function showUsagePanel() {
+  usagePanel.classList.remove('hidden');
+}
+
+function hideUsagePanel() {
+  usagePanel.classList.add('hidden');
 }
 
 function formatDate(value) {

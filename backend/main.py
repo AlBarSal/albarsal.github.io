@@ -215,8 +215,8 @@ async def get_cfp(
 ):
     global _cache
 
-    if not _cache_is_valid() or refresh:
-        logger.info("Cache miss or forced refresh — fetching data...")
+    if refresh:
+        logger.info("Forced refresh — fetching data...")
         try:
             cfps, statuses = await _run_scrapers()
             search_notifications = await _run_search_notifications(cfps)
@@ -230,6 +230,8 @@ async def get_cfp(
                 status_code=500,
                 content={"error": f"Error al obtener datos: {exc}", "data": []},
             )
+    elif _cache["timestamp"] is None:
+        logger.info("CFP cache is empty; returning no data without fetching")
 
     results: List[CallForPaper] = list(_cache["data"])
 
@@ -252,6 +254,7 @@ async def get_cfp(
         "meta": {
             "total": len(results),
             "cached_at": _cache["timestamp"].isoformat() if _cache["timestamp"] else None,
+            "cache_valid": _cache_is_valid(),
             "statuses": _cache["statuses"],
             "search_notifications": _cache["search_notifications"],
         },

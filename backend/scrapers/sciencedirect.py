@@ -1,8 +1,11 @@
 import logging
 import os
+import json
+import asyncio
 from typing import List, Tuple
 
 import httpx
+from bs4 import BeautifulSoup
 
 from models import CallForPaper, ScrapingStatus
 from .base import BaseScraper, clean, make_id
@@ -34,6 +37,24 @@ class ScienceDirectScraper(BaseScraper):
     url = BROWSE_URL
 
     async def scrape(self) -> Tuple[List[CallForPaper], ScrapingStatus]:
+        count_setting = self.settings.get("count")
+        direct_count = int(count_setting) if count_setting else 0
+        direct_error: str | None = None
+
+        try:
+            cfps = await asyncio.to_thread(self._scrape_browse_direct, direct_count)
+            if cfps:
+                logger.info("[%s] ScienceDirect browse encontró %d CFPs", self.source_name, len(cfps))
+                return cfps, ScrapingStatus(
+                    source_id=self.source_id,
+                    source=self.source_name,
+                    success=True,
+                    count=len(cfps),
+                )
+        except Exception as exc:
+            direct_error = str(exc)
+            logger.warning("[%s] Direct browse unavailable, trying Scopus fallback: %s", self.source_name, exc)
+
         api_key = os.environ.get("API_KEY_ELSEVIER") or self.settings.get("api_key", "")
         if not api_key:
             return [], ScrapingStatus(
@@ -41,7 +62,7 @@ class ScienceDirectScraper(BaseScraper):
                 source=self.source_name,
                 success=False,
                 count=0,
-                error="API_KEY_ELSEVIER no configurada en .env",
+                error=direct_error or "API_KEY_ELSEVIER no configurada en .env",
             )
 
         count = int(self.settings.get("count", _DEFAULT_COUNT))
@@ -79,6 +100,76 @@ class ScienceDirectScraper(BaseScraper):
                 count=0,
                 error=f"Error Scopus API: {exc}",
             )
+
+    def _scrape_browse_direct(self, max_count: int = 0) -> List[CallForPaper]:
+        try:
+            from curl_cffi import requests as curl_requests  # noqa: PLC0415
+        except ImportError as exc:
+            raise RuntimeError("curl_cffi no instalado") from exc
+
+        response = curl_requests.get(
+            self.url,
+            impersonate="chrome124",
+            timeout=45,
+            allow_redirects=True,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError(f"ScienceDirect browse devolvió HTTP {response.status_code}")
+
+        soup = BeautifulSoup(response.text, "lxml")
+        script_text = ""
+        for script in soup.find_all("script"):
+            text = script.string or script.get_text() or ""
+            if text.startswith("window.INITIAL_STATE"):
+                script_text = text
+                break
+
+        if not script_text:
+            raise RuntimeError("No se encontró window.INITIAL_STATE en ScienceDirect")
+
+        raw_json = script_text.split("=", 1)[1].strip().rstrip(";")
+        state = json.loads(raw_json)
+        entries = state.get("callsForPapers", {}).get("cfpList", [])
+        if not isinstance(entries, list):
+            raise RuntimeError("ScienceDirect no devolvió cfpList estructurado")
+
+        cfps: List[CallForPaper] = []
+        for entry in entries:
+            cfp = self._browse_entry_to_cfp(entry)
+            if cfp:
+                cfps.append(cfp)
+            if max_count and len(cfps) >= max_count:
+                break
+
+        seen: set[str] = set()
+        return [cfp for cfp in cfps if not (cfp.id in seen or seen.add(cfp.id))]  # type: ignore
+
+    def _browse_entry_to_cfp(self, entry: dict) -> CallForPaper | None:
+        title = clean(entry.get("title", ""))
+        content_id = entry.get("contentId")
+        slug = clean(entry.get("url", ""))
+        if not title or not content_id or not slug:
+            return None
+
+        journal_data = entry.get("journal") or {}
+        journal = (
+            clean(journal_data.get("displayName", ""))
+            or clean(journal_data.get("title", ""))
+            or "No disponible"
+        )
+        deadline = clean(entry.get("submissionDeadline", "")) or "No disponible"
+        description = clean(entry.get("summary", "")) or "No disponible"
+        url = f"https://www.sciencedirect.com/special-issue/{content_id}/{slug}"
+
+        return CallForPaper(
+            id=make_id(self.source_name, title),
+            title=title,
+            source=self.source_name,
+            journal=journal,
+            deadline=deadline,
+            description=description,
+            url=url,
+        )
 
     async def _scrape_scopus(self, api_key: str, max_count: int, months: int) -> List[CallForPaper]:
         import datetime

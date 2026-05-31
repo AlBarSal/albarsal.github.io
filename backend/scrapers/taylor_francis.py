@@ -3,8 +3,9 @@ Taylor & Francis Call for Papers scraper.
 
 Uses the public WordPress REST API at think.taylorandfrancis.com which exposes
 584 "special issues" (= calls for papers / themed journal issues) with clean
-structured data. Individual pages are fetched concurrently to extract the
-journal name, deadlines, and description.
+structured data. The API includes the custom `special_issues` payload with
+journal name, deadlines, and description, so detail pages are only needed as a
+fallback when a record is incomplete.
 """
 
 import asyncio
@@ -57,18 +58,29 @@ class TaylorFrancisScraper(BaseScraper):
                 error="La API no devolvió ningún resultado"
             )
 
-        # Fetch individual pages for the freshest items (for journal + description)
-        detail_items = api_items[:max_detail_fetch]
-        bulk_items = api_items[max_detail_fetch:]
+        all_cfps = [self._build_structured_cfp(item) for item in api_items]
+        incomplete_items = [
+            item
+            for item, cfp in zip(api_items, all_cfps)
+            if (
+                cfp.journal == "No disponible"
+                or cfp.description == "No disponible"
+                or cfp.deadline == "No disponible"
+            )
+        ][:max_detail_fetch]
 
-        logger.info(
-            "[%s] Fetching detail pages for first %d items (concurrency=%d)",
-            self.source_name, len(detail_items), concurrency,
-        )
-        detailed_cfps = await self._fetch_details_concurrent(detail_items, concurrency)
-        bulk_cfps = [self._build_basic_cfp(item) for item in bulk_items]
-
-        all_cfps = detailed_cfps + bulk_cfps
+        if incomplete_items:
+            logger.info(
+                "[%s] Fetching detail pages for %d incomplete items (concurrency=%d)",
+                self.source_name,
+                len(incomplete_items),
+                concurrency,
+            )
+            detailed_by_id = {
+                cfp.id: cfp
+                for cfp in await self._fetch_details_concurrent(incomplete_items, concurrency)
+            }
+            all_cfps = [detailed_by_id.get(cfp.id, cfp) for cfp in all_cfps]
 
         # Deduplicate
         seen: set[str] = set()
@@ -87,7 +99,7 @@ class TaylorFrancisScraper(BaseScraper):
             "Accept": "application/json",
         }
         params = {
-            "_fields": "id,title,link,meta",
+            "_fields": "id,title,link,meta,special_issues",
             "per_page": page_size,
             "page": 1,
             "orderby": "date",
@@ -206,6 +218,38 @@ class TaylorFrancisScraper(BaseScraper):
 
     # ── Basic CFP (from API metadata only) ───────────────────────────────────
 
+    def _build_structured_cfp(self, item: dict) -> CallForPaper:
+        special_issue = item.get("special_issues") or {}
+        title = (
+            self._first(special_issue.get("_special_issues_title"))
+            or clean(item.get("title", {}).get("rendered", ""))
+        )
+        link = item.get("link", "No disponible")
+        meta = item.get("meta", {}) or {}
+        journal = (
+            self._first(special_issue.get("_special_issues_journal_title"))
+            or "No disponible"
+        )
+        deadline = (
+            self._first(special_issue.get("_special_issues_deadline"))
+            or self._first(special_issue.get("_special_issues_deadline2"))
+            or meta.get("meta-page-expiry-date", "")
+            or "No disponible"
+        )
+        description = self._html_to_text(
+            self._first(special_issue.get("_special_issues_copy"))
+        )
+
+        return CallForPaper(
+            id=make_id(self.source_name, title),
+            title=title,
+            source=self.source_name,
+            journal=journal,
+            deadline=deadline,
+            description=self._truncate(description) if description else "No disponible",
+            url=link,
+        )
+
     def _build_basic_cfp(self, item: dict) -> CallForPaper:
         title = clean(item.get("title", {}).get("rendered", ""))
         link = item.get("link", "No disponible")
@@ -219,3 +263,13 @@ class TaylorFrancisScraper(BaseScraper):
             deadline=deadline,
             url=link,
         )
+
+    def _first(self, value: object) -> str:
+        if isinstance(value, list):
+            value = value[0] if value else ""
+        return clean(str(value or ""))
+
+    def _html_to_text(self, html: str) -> str:
+        if not html:
+            return ""
+        return clean(BeautifulSoup(html, "lxml").get_text(" "))
