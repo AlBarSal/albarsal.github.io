@@ -7,6 +7,7 @@ import smtplib
 from dataclasses import dataclass
 from email.message import EmailMessage
 from email.utils import formataddr
+from typing import Callable
 
 from models import CallForPaper, Search
 
@@ -29,44 +30,50 @@ class SearchNotificationResult:
 
 
 async def notify_searches(
-    searches: list[Search], cfps: list[CallForPaper]
+    searches: list[Search],
+    cfps: list[CallForPaper],
+    progress_callback: Callable[[Search, str, SearchNotificationResult | None], None] | None = None,
 ) -> list[SearchNotificationResult]:
     results: list[SearchNotificationResult] = []
 
     for search in searches:
+        if progress_callback:
+            progress_callback(search, "running", None)
+
         matches = find_search_matches(search, cfps)
         if not matches:
-            results.append(
-                SearchNotificationResult(
-                    search_id=search.id,
-                    search_name=search.name,
-                    match_count=0,
-                    notified=False,
-                )
+            result = SearchNotificationResult(
+                search_id=search.id,
+                search_name=search.name,
+                match_count=0,
+                notified=False,
             )
+            results.append(result)
+            if progress_callback:
+                progress_callback(search, "done", result)
             continue
 
         try:
             await send_search_email(search, matches)
-            results.append(
-                SearchNotificationResult(
-                    search_id=search.id,
-                    search_name=search.name,
-                    match_count=len(matches),
-                    notified=True,
-                )
+            result = SearchNotificationResult(
+                search_id=search.id,
+                search_name=search.name,
+                match_count=len(matches),
+                notified=True,
             )
         except Exception as exc:
             logger.error("Unable to notify search %s: %s", search.name, exc)
-            results.append(
-                SearchNotificationResult(
-                    search_id=search.id,
-                    search_name=search.name,
-                    match_count=len(matches),
-                    notified=False,
-                    error=str(exc),
-                )
+            result = SearchNotificationResult(
+                search_id=search.id,
+                search_name=search.name,
+                match_count=len(matches),
+                notified=False,
+                error=str(exc),
             )
+
+        results.append(result)
+        if progress_callback:
+            progress_callback(search, "error" if result.error else "done", result)
 
     return results
 

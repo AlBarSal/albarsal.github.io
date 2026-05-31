@@ -7,6 +7,7 @@ let _sourceTypes = [];
 let _searches = [];
 let _isLoading = false;
 let _isSyncingSettings = false;
+let _progressTimer = null;
 
 const SOURCE_SETTING_SCHEMAS = {
   generic_html: [
@@ -42,6 +43,10 @@ const statsRow      = $('stats-row');
 const statCount     = $('stat-count');
 const statCache     = $('stat-cache');
 const sourcePills   = $('source-statuses');
+const progressPanel = $('progress-panel');
+const progressSummary = $('progress-summary');
+const progressMeta  = $('progress-meta');
+const progressList  = $('progress-list');
 const emptyState    = $('empty-state');
 const statusBar     = $('status-bar');
 const usagePanel    = $('usage-panel');
@@ -88,6 +93,8 @@ async function loadData(forceRefresh = false) {
   hideUsagePanel();
   hideError();
   setStatusBar('info', forceRefresh ? 'Consultando fuentes…' : 'Cargando datos en caché…');
+  if (forceRefresh) startProgressPolling();
+  else hideProgressPanel();
 
   try {
     const url = forceRefresh ? '/api/cfp?refresh=true' : '/api/cfp';
@@ -96,15 +103,18 @@ async function loadData(forceRefresh = false) {
 
     _allCfps = json.data || [];
     renderSourceStatuses(json.meta?.statuses || []);
+    if (forceRefresh) renderProgress(json.meta?.progress || buildFinalProgress(json.meta));
     renderStats(json.meta);
     hideStatusBar();
     applyFilters();
     await Promise.all([loadSources(), loadSearches()]);
   } catch (err) {
+    if (forceRefresh) await loadProgress().catch(() => {});
     showError(`No se pudieron cargar los datos: ${err.message}`);
     setStatusBar('error', `Error al cargar: ${err.message}`);
     renderGrid([]);
   } finally {
+    if (forceRefresh) stopProgressPolling();
     setLoading(false);
     _isLoading = false;
   }
@@ -668,6 +678,202 @@ function renderSourceStatuses(statuses) {
   sourcePills.classList.remove('hidden');
 }
 
+// ── Refresh progress ──────────────────────────────────────────────────────
+function startProgressPolling() {
+  stopProgressPolling();
+  renderProgress(buildInitialProgress());
+  _progressTimer = window.setInterval(() => {
+    loadProgress().catch(() => {});
+  }, 900);
+  window.setTimeout(() => {
+    if (_progressTimer) loadProgress().catch(() => {});
+  }, 300);
+}
+
+function stopProgressPolling() {
+  if (!_progressTimer) return;
+  window.clearInterval(_progressTimer);
+  _progressTimer = null;
+}
+
+async function loadProgress() {
+  const json = await fetchJson('/api/cfp/progress');
+  renderProgress(json.data);
+  return json.data;
+}
+
+function buildInitialProgress() {
+  const activeSources = _sources.filter(source => source.enabled);
+  const activeSearches = _searches.filter(search => search.enabled);
+  return {
+    active: true,
+    phase: 'preparing',
+    message: 'Preparando consulta',
+    total_sources: activeSources.length,
+    completed_sources: 0,
+    total_items: 0,
+    sources: activeSources.map(source => ({
+      source_id: source.id,
+      source: source.name,
+      state: 'pending',
+      count: 0,
+    })),
+    total_searches: activeSearches.length,
+    completed_searches: 0,
+    searches: [],
+  };
+}
+
+function buildFinalProgress(meta) {
+  const statuses = meta?.statuses || [];
+  const notifications = meta?.search_notifications || [];
+  return {
+    active: false,
+    phase: 'complete',
+    message: 'Consulta completada',
+    total_sources: statuses.length,
+    completed_sources: statuses.length,
+    total_items: meta?.total || _allCfps.length,
+    sources: statuses.map(status => ({
+      source_id: status.source_id,
+      source: status.source,
+      state: status.success ? 'done' : 'error',
+      success: status.success,
+      count: status.count || 0,
+      error: status.error || null,
+    })),
+    total_searches: notifications.length,
+    completed_searches: notifications.length,
+    searches: notifications.map(item => ({
+      search_id: item.search_id,
+      search: item.search,
+      state: item.error ? 'error' : 'done',
+      match_count: item.match_count || 0,
+      notified: item.notified,
+      error: item.error || null,
+    })),
+  };
+}
+
+function renderProgress(progress) {
+  if (!progress || (!progress.active && progress.phase === 'idle')) {
+    hideProgressPanel();
+    return;
+  }
+
+  progressPanel.classList.remove('hidden');
+  progressSummary.textContent = progress.message || progressPhaseLabel(progress.phase);
+  progressMeta.textContent = progressMetaText(progress);
+
+  const percent = progressPercent(progress);
+  const parts = [
+    `<div class="progress-bar" aria-hidden="true"><span style="width:${percent}%"></span></div>`,
+  ];
+
+  if ((progress.sources || []).length) {
+    parts.push('<div class="progress-section-label">Fuentes</div>');
+    parts.push(...progress.sources.map(source => buildProgressRow(
+      source.source,
+      source.state,
+      sourceProgressDetail(source),
+      source.error,
+    )));
+  }
+
+  if ((progress.searches || []).length) {
+    parts.push('<div class="progress-section-label">Búsquedas</div>');
+    parts.push(...progress.searches.map(search => buildProgressRow(
+      search.search,
+      search.state,
+      searchProgressDetail(search),
+      search.error,
+    )));
+  }
+
+  progressList.innerHTML = parts.join('');
+}
+
+function buildProgressRow(label, state, detail, error) {
+  const cls = progressStateClass(state);
+  const detailText = error || detail;
+  return `
+    <div class="progress-row ${cls}">
+      <span class="progress-dot"></span>
+      <span class="progress-name">${esc(label)}</span>
+      <span class="progress-state">${esc(progressStateLabel(state))}</span>
+      <span class="progress-detail">${esc(detailText)}</span>
+    </div>`;
+}
+
+function progressMetaText(progress) {
+  const parts = [];
+  const sourceTotal = Number(progress.total_sources || 0);
+  const searchTotal = Number(progress.total_searches || 0);
+  if (sourceTotal) parts.push(`${progress.completed_sources || 0}/${sourceTotal} fuentes`);
+  if (searchTotal) parts.push(`${progress.completed_searches || 0}/${searchTotal} búsquedas`);
+  parts.push(`${progress.total_items || 0} resultados`);
+  if (progress.elapsed_seconds !== null && progress.elapsed_seconds !== undefined) {
+    parts.push(formatElapsed(progress.elapsed_seconds));
+  }
+  return parts.join(' · ');
+}
+
+function progressPercent(progress) {
+  if (progress.phase === 'complete') return 100;
+  const sourceTotal = Number(progress.total_sources || 0);
+  const searchTotal = Number(progress.total_searches || 0);
+  if (progress.phase === 'notifications' && searchTotal) {
+    return Math.round(((progress.completed_searches || 0) / searchTotal) * 100);
+  }
+  if (sourceTotal) {
+    return Math.round(((progress.completed_sources || 0) / sourceTotal) * 100);
+  }
+  return progress.active ? 8 : 0;
+}
+
+function sourceProgressDetail(source) {
+  if (source.state === 'done') return `${source.count || 0} resultados`;
+  if (source.state === 'error') return source.error || 'Error desconocido';
+  if (source.state === 'running') return 'Consultando';
+  return 'En espera';
+}
+
+function searchProgressDetail(search) {
+  if (search.state === 'running') return 'Calculando coincidencias';
+  if (search.state === 'error') return search.error || 'Error desconocido';
+  if (search.state === 'done') {
+    const matches = `${search.match_count || 0} coincidencia${search.match_count === 1 ? '' : 's'}`;
+    return search.notified ? `${matches} · aviso enviado` : matches;
+  }
+  return 'En espera';
+}
+
+function progressPhaseLabel(phase) {
+  if (phase === 'scraping') return 'Consultando fuentes';
+  if (phase === 'notifications') return 'Comprobando búsquedas guardadas';
+  if (phase === 'complete') return 'Consulta completada';
+  if (phase === 'error') return 'Consulta interrumpida';
+  return 'Preparando consulta';
+}
+
+function progressStateLabel(state) {
+  if (state === 'running') return 'En curso';
+  if (state === 'done') return 'OK';
+  if (state === 'error') return 'Error';
+  return 'Pendiente';
+}
+
+function progressStateClass(state) {
+  if (state === 'running') return 'running';
+  if (state === 'done') return 'done';
+  if (state === 'error') return 'error';
+  return 'pending';
+}
+
+function hideProgressPanel() {
+  progressPanel.classList.add('hidden');
+}
+
 // ── Stats ─────────────────────────────────────────────────────────────────
 function renderStats(meta) {
   if (!meta) return;
@@ -708,6 +914,7 @@ function setDemandReadyState(message = 'Consulta las fuentes para cargar resulta
   renderGrid([]);
   statsRow.classList.add('hidden');
   sourcePills.classList.add('hidden');
+  hideProgressPanel();
   emptyState.classList.add('hidden');
   showUsagePanel();
   setStatusBar('info', message);
@@ -723,6 +930,13 @@ function hideUsagePanel() {
 
 function formatDate(value) {
   return new Date(value).toLocaleString('es-ES');
+}
+
+function formatElapsed(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return minutes ? `${minutes}m ${rest}s` : `${rest}s`;
 }
 
 // Escape HTML to prevent XSS from scraped and persisted data

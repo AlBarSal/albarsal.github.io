@@ -56,6 +56,18 @@
   <!-- MAIN -->
   <main class="main-content">
 
+    <!-- Query progress -->
+    <section id="progress-panel" class="progress-panel hidden" aria-live="polite">
+      <div class="progress-head">
+        <div>
+          <h2>Progreso de consulta</h2>
+          <p id="progress-summary">Preparando consulta</p>
+        </div>
+        <span id="progress-meta" class="progress-meta"></span>
+      </div>
+      <div id="progress-list" class="progress-list"></div>
+    </section>
+
     <!-- Loading -->
     <div id="loading" class="loading-wrap hidden">
       <div class="spinner"></div>
