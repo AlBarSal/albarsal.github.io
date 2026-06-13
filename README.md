@@ -2,10 +2,14 @@
 
 Aplicación web para explorar y visualizar convocatorias de publicación científica (*Calls for Papers*) extraídas de fuentes editoriales configurables.
 
-La aplicación se inicializa con dos fuentes por defecto:
+La aplicación se inicializa con seis fuentes por defecto:
 
 - **Taylor & Francis** — 580+ special issues activos vía API REST pública de `think.taylorandfrancis.com`
 - **APA** — página de convocatorias en `apa.org/pubs/journals/resources/calls-for-papers` (requiere scraping web)
+- **Nature / Scientific Reports** — scraping HTML genérico con paginación
+- **Emerald** — scraping HTML genérico con paginación
+- **Sage Journals** — extracción vía reader markdown
+- **ScienceDirect** — extracción directa o fallback vía Scopus API
 
 ## Capturas de datos
 

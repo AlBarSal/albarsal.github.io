@@ -31,6 +31,56 @@ DEFAULT_SOURCES = [
         enabled=True,
         settings={},
     ),
+    SourceCreate(
+        name="Nature",
+        scraper_type="generic_html",
+        url="https://www.nature.com/srep/calls-for-papers",
+        enabled=True,
+        settings={
+            "item_selector": "li.app-article-list-row__item",
+            "title_selector": "[data-test='link-title'], h2 a, h3 a",
+            "url_selector": "[data-test='link-title'], h2 a, h3 a",
+            "deadline_selector": "[data-test='end-date']",
+            "description_selector": "[data-test='description'], .c-card__summary",
+            "default_journal": "Scientific Reports",
+            "pagination_url_template": "https://www.nature.com/srep/calls-for-papers?page={page}",
+            "pagination_start": 2,
+            "max_pages": 63,
+            "concurrency": 8,
+        },
+    ),
+    SourceCreate(
+        name="Emerald",
+        scraper_type="generic_html",
+        url="https://www.emeraldgrouppublishing.com/publish-with-us/calls-for-papers",
+        enabled=True,
+        settings={
+            "item_selector": "a.node--type-call-for-papers",
+            "title_selector": ".cfp-card__content-title",
+            "journal_selector": ".cfp-card__content-journal",
+            "deadline_selector": ".cfp-card__active-dates-item time",
+            "description_selector": ".cfp-card__content-body",
+            "default_journal": "Emerald Publishing",
+            "pagination_url_template": "https://www.emeraldgrouppublishing.com/publish-with-us/calls-for-papers?page={page}",
+            "pagination_start": 1,
+            "max_pages": 80,
+            "concurrency": 8,
+        },
+    ),
+    SourceCreate(
+        name="Sage Journals",
+        scraper_type="sage",
+        url="https://journals.sagepub.com/open-call-for-papers",
+        enabled=True,
+        settings={},
+    ),
+    SourceCreate(
+        name="ScienceDirect",
+        scraper_type="sciencedirect",
+        url="https://www.sciencedirect.com/browse/calls-for-papers",
+        enabled=True,
+        settings={},
+    ),
 ]
 
 
@@ -297,15 +347,15 @@ def _seed_defaults(conn: sqlite3.Connection) -> None:
     seeded = conn.execute(
         "SELECT value FROM app_settings WHERE key = 'default_sources_seeded'"
     ).fetchone()
-    if seeded:
-        return
 
     for source in DEFAULT_SOURCES:
-        _insert_source(conn, source)
+        if not _source_exists(conn, source):
+            _insert_source(conn, source)
 
-    conn.execute(
-        "INSERT INTO app_settings (key, value) VALUES ('default_sources_seeded', '1')"
-    )
+    if not seeded:
+        conn.execute(
+            "INSERT INTO app_settings (key, value) VALUES ('default_sources_seeded', '1')"
+        )
 
 
 def _insert_source(conn: sqlite3.Connection, source: SourceCreate) -> None:
@@ -327,6 +377,19 @@ def _insert_source(conn: sqlite3.Connection, source: SourceCreate) -> None:
             now,
         ),
     )
+
+
+def _source_exists(conn: sqlite3.Connection, source: SourceCreate) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM sources
+        WHERE scraper_type = ? AND url = ?
+        LIMIT 1
+        """,
+        (_required_scraper_type(source), source.url),
+    ).fetchone()
+    return row is not None
 
 
 def _row_to_source(row: sqlite3.Row) -> Source:
